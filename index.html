@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Voxel Builder 3D (リネーム機能修正版)</title>
+    <style>
+        html { height: 100%; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            overflow: hidden;
+            background-color: #f0f0f0;
+        }
+        .floating-window {
+            position: absolute;
+            z-index: 10;
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            display: flex;
+            flex-direction: column;
+        }
+        .window-header {
+            padding: 8px;
+            cursor: move;
+            background-color: #f7f7f7;
+            border-bottom: 1px solid #ddd;
+            border-radius: 8px 8px 0 0;
+            user-select: none;
+            text-align: center;
+            font-weight: bold;
+            font-size: 14px;
+            color: #333;
+        }
+        .window-content {
+            padding: 15px;
+            overflow-y: auto;
+        }
+        #toolbox {
+            top: 15px;
+            left: 15px;
+            width: 280px;
+            height: calc(100vh - 30px);
+            max-height: 95%;
+        }
+        #toolbox .window-content {
+             display: flex;
+             flex-direction: column;
+             gap: 15px;
+             padding-top: 0;
+        }
+        #canvas-container { 
+            top: 50px;
+            left: 310px;
+            width: 60vw;
+            height: 80vh;
+            resize: both;
+            overflow: hidden;
+            padding: 0;
+        }
+        #canvas-container .window-content {
+            padding: 0;
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+        }
+        canvas { display: block; }
+        .toolbox-section { border: 1px solid #ddd; border-radius: 8px; padding: 10px; }
+        .toolbox-section h3 { margin: 0 0 10px 0; font-size: 16px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        .button-group { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        button, .anchor-point, input[type="checkbox"] + label { cursor: pointer; }
+        button { padding: 10px; border: 1px solid #ccc; border-radius: 5px; background-color: #f8f8f8; font-size: 14px; }
+        button:hover { background-color: #e8e8e8; border-color: #bbb; }
+        button.active { background-color: #007bff; color: white; border-color: #007bff; }
+        #color-palette { display: grid; grid-template-columns: repeat(auto-fill, minmax(30px, 1fr)); gap: 5px; }
+        .color-swatch { width: 30px; height: 30px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px #ccc; position: relative; }
+        .color-swatch.transparent { background-image: linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%); background-size: 10px 10px; background-position: 0 0, 0 5px, 5px -5px, -5px 0px; }
+        .color-swatch.selected { box-shadow: 0 0 0 3px #007bff; }
+        #color-picker-wrapper { display: flex; gap: 5px; align-items: center; }
+        #color-picker { width: 40px; height: 40px; padding: 0; border: none; background: none; cursor: pointer; }
+        #add-color-btn { flex-grow: 1; }
+        .grid-size-inputs { display: flex; gap: 5px; align-items: center; }
+        .grid-size-inputs input { width: 50px; }
+        .grid-size-inputs label { margin-right: 5px; }
+        #anchor-grid { display: grid; grid-template-columns: repeat(3, 22px); grid-template-rows: repeat(3, 22px); gap: 2px; justify-content: center; margin-top: 5px; }
+        .anchor-point { border: 1px solid #ccc; border-radius: 3px; background-color: #f0f0f0; }
+        .anchor-point:hover { background-color: #ddd; }
+        .anchor-point.selected { background-color: #007bff; border-color: #0056b3; }
+        .setting-item { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+    </style>
+</head>
+<body>
+
+<div id="toolbox" class="floating-window">
+    <div class="window-header">ツールボックス</div>
+    <div class="window-content">
+        <div class="toolbox-section">
+            <h3>モード</h3>
+            <div class="button-group">
+                <button id="mode-2d" class="active">2D</button>
+                <button id="mode-3d">3D</button>
+            </div>
+        </div>
+        <div class="toolbox-section">
+            <h3>表示設定</h3>
+            <div class="setting-item">
+                <input type="checkbox" id="toggle-edges" checked>
+                <label for="toggle-edges">フレーム枠を表示</label>
+            </div>
+            <div class="setting-item">
+                <input type="checkbox" id="toggle-numbers" checked>
+                <label for="toggle-numbers">段数値を表示</label>
+            </div>
+        </div>
+        <div class="toolbox-section">
+            <h3>カラーパレット</h3>
+            <div id="color-palette"></div>
+            <div id="color-picker-wrapper" style="margin-top: 10px;">
+                <input type="color" id="color-picker" value="#ff0000">
+                <button id="add-color-btn">色を追加</button>
+            </div>
+            <button id="reset-colors-btn" style="width: 100%; margin-top: 10px;">基本色にリセット</button>
+        </div>
+        <div class="toolbox-section">
+            <h3>操作</h3>
+            <div class="button-group">
+                <button id="undo-btn">アンドゥ</button>
+                <button id="redo-btn">リドゥ</button>
+                <button id="view-toggle" class="active">固定</button>
+                <button id="reset-canvas-btn">全消去</button>
+            </div>
+        </div>
+        <div class="toolbox-section">
+            <h3>キャンバス設定</h3>
+            <div class="grid-size-inputs">
+                <label>幅:</label><input type="number" id="grid-width" value="16" min="1" max="64">
+                <label>奥:</label><input type="number" id="grid-depth" value="16" min="1" max="64">
+            </div>
+            <label style="margin-top: 10px; display: block; text-align: center;">拡大縮小の基準点:</label>
+            <div id="anchor-grid">
+                <div class="anchor-point" data-anchor="top-left"></div>
+                <div class="anchor-point" data-anchor="top-center"></div>
+                <div class="anchor-point" data-anchor="top-right"></div>
+                <div class="anchor-point" data-anchor="middle-left"></div>
+                <div class="anchor-point selected" data-anchor="middle-center"></div>
+                <div class="anchor-point" data-anchor="middle-right"></div>
+                <div class="anchor-point" data-anchor="bottom-left"></div>
+                <div class="anchor-point" data-anchor="bottom-center"></div>
+                <div class="anchor-point" data-anchor="bottom-right"></div>
+            </div>
+            <button id="resize-btn" style="width:100%; margin-top:10px;">サイズ変更</button>
+        </div>
+        <div class="toolbox-section">
+            <h3>ファイル</h3>
+            <div class="button-group" style="grid-template-columns: 1fr 1fr 1fr;">
+                <button id="new-btn">新規作成</button>
+                <button id="import-json-btn">インポート</button>
+                <button id="export-json">エクスポート</button>
+            </div>
+            <h3 style="margin-top: 15px;">3Dモデル/画像</h3>
+            <div class="button-group">
+                <button id="export-png">PNG</button>
+                <button id="export-stl">STL</button>
+                <button id="export-3mf">3MF</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<input type="file" id="import-json-input" accept=".json" style="display: none;">
+<div id="canvas-container" class="floating-window">
+    <div class="window-header">キャンバス</div>
+    <div class="window-content"></div>
+</div>
+
+<script type="importmap">
+    { "imports": { "three": "https://unpkg.com/three@0.163.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.163.0/examples/jsm/" } }
+</script>
+
+<script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    const VOXEL_SIZE = 5;
+    const VOXEL_HEIGHT_STEP = 1;
+    const MAX_HEIGHT = 5;
+    const initialColors = [ null, '#ff4d4d', '#ffc44d', '#ffff4d', '#4dff4d', '#4dffff', '#4d4dff', '#c44dff', '#ff4dff', '#ffffff', '#c0c0c0', '#808080', '#000000' ];
+
+    let scene, camera, renderer, controls, raycaster, pointer;
+    let customGrid, plane;
+    let gridWidth = 16, gridDepth = 16;
+    let voxels = new Map();
+    let currentColor = initialColors[1];
+    let currentMode = '2D';
+    let history = [], historyIndex = -1;
+    const horizontalLineMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+    const edgeLineMaterial = new THREE.LineBasicMaterial({ color: 0x000000 });
+    let ambientLight, directionalLight;
+    let numberMaterials = [];
+
+    const canvasWindow = document.getElementById('canvas-container');
+    const canvasContent = canvasWindow.querySelector('.window-content');
+    const colorPalette = document.getElementById('color-palette');
+    
+    function initNumberMaterials() {
+        const canvas = document.createElement('canvas');
+        const textureSize = 128;
+        canvas.width = textureSize * MAX_HEIGHT;
+        canvas.height = textureSize;
+        const ctx = canvas.getContext('2d');
+        ctx.font = `bold ${textureSize * 0.8}px Arial`;
+        ctx.fillStyle = 'black';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        for (let i = 1; i <= MAX_HEIGHT; i++) {
+            ctx.fillText(i.toString(), (i - 1) * textureSize + textureSize / 2, textureSize / 2 + 10);
+        }
+        const numberTexture = new THREE.CanvasTexture(canvas);
+        for (let i = 1; i <= MAX_HEIGHT; i++) {
+            const textureForMaterial = numberTexture.clone();
+            textureForMaterial.needsUpdate = true;
+            textureForMaterial.offset.set((i - 1) / MAX_HEIGHT, 0);
+            textureForMaterial.repeat.set(1 / MAX_HEIGHT, 1);
+            const mat = new THREE.MeshBasicMaterial({ map: textureForMaterial, transparent: true, depthTest: false });
+            numberMaterials.push(mat);
+        }
+    }
+
+    function init() {
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xeeeeee);
+        camera = new THREE.PerspectiveCamera(50, canvasContent.clientWidth / canvasContent.clientHeight, 1, 5000);
+        renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+        renderer.setSize(canvasContent.clientWidth, canvasContent.clientHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        canvasContent.appendChild(renderer.domElement);
+        controls = new OrbitControls(camera, renderer.domElement);
+        controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+        controls.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
+        controls.mouseButtons.RIGHT = null;
+        ambientLight = new THREE.AmbientLight(0xffffff);
+        directionalLight = new THREE.DirectionalLight(0xffffff);
+        directionalLight.position.set(100, 150, 100);
+        directionalLight.target.position.set(0, 0, 0);
+        scene.add(ambientLight);
+        raycaster = new THREE.Raycaster();
+        pointer = new THREE.Vector2();
+        initNumberMaterials();
+        setupUIEventListeners();
+        new ResizeObserver(onWindowResize).observe(canvasContent);
+        renderer.domElement.addEventListener('pointerdown', onPointerDown);
+        renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+        setupColorPalette();
+        resetGrid();
+        saveState();
+        animate();
+    }
+
+    function resetGrid() {
+        Array.from(voxels.keys()).forEach(key => removeVoxel(key));
+        if (customGrid) scene.remove(customGrid);
+        if (plane) scene.remove(plane);
+        const sizeX = gridWidth * VOXEL_SIZE, sizeZ = gridDepth * VOXEL_SIZE;
+        const halfWidth = sizeX / 2, halfDepth = sizeZ / 2;
+        const vertices = [];
+        for (let i = 0; i <= gridWidth; i++) {
+            const x = (i * VOXEL_SIZE) - halfWidth;
+            vertices.push(x, 0, -halfDepth, x, 0, halfDepth);
+        }
+        for (let i = 0; i <= gridDepth; i++) {
+            const z = (i * VOXEL_SIZE) - halfDepth;
+            vertices.push(-halfWidth, 0, z, halfWidth, 0, z);
+        }
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+        const gridMaterial = new THREE.LineBasicMaterial({ color: 0x888888, transparent: true, opacity: 0.5 });
+        customGrid = new THREE.LineSegments(geometry, gridMaterial);
+        scene.add(customGrid);
+        const planeGeometry = new THREE.PlaneGeometry(sizeX, sizeZ);
+        planeGeometry.rotateX(-Math.PI / 2);
+        const planeMaterial = new THREE.MeshBasicMaterial({ visible: false });
+        plane = new THREE.Mesh(planeGeometry, planeMaterial);
+        scene.add(plane);
+        setMode(currentMode, true);
+    }
+    
+    function setMode(mode, forceUpdate = false) {
+        if (!forceUpdate && currentMode === mode) return;
+        currentMode = mode;
+        document.getElementById('mode-2d').classList.toggle('active', mode === '2D');
+        document.getElementById('mode-3d').classList.toggle('active', mode === '3D');
+        const is3D = currentMode === '3D';
+        if (is3D) {
+            scene.add(directionalLight);
+            scene.add(directionalLight.target);
+            ambientLight.intensity = 2.0;
+            directionalLight.intensity = 1.0;
+        } else {
+            scene.remove(directionalLight);
+            scene.remove(directionalLight.target);
+            ambientLight.intensity = 1.0;
+        }
+        voxels.forEach(voxelGroup => {
+            const boxMesh = voxelGroup.children[0];
+            if (boxMesh) {
+                const oldColor = boxMesh.material.color;
+                boxMesh.material.dispose();
+                boxMesh.material = is3D ? new THREE.MeshStandardMaterial({ color: oldColor }) : new THREE.MeshBasicMaterial({ color: oldColor });
+            }
+        });
+        voxels.forEach(updateVoxelAppearance);
+        updateCameraAndControls();
+    }
+    
+    function updateCameraAndControls() {
+        const isViewFixed = document.getElementById('view-toggle').classList.contains('active');
+        const maxSize = Math.max(gridWidth, gridDepth) * VOXEL_SIZE;
+        if (currentMode === '2D') {
+            camera.position.set(0, maxSize * 1.5, 0.1);
+            controls.enableRotate = !isViewFixed;
+            controls.enablePan = !isViewFixed;
+        } else {
+            camera.position.set(0, maxSize * 0.9, maxSize * 1.2);
+            controls.enableRotate = true;
+            controls.enablePan = true;
+        }
+        camera.lookAt(0, 0, 0);
+        controls.target.set(0, 0, 0);
+        controls.update();
+    }
+
+    function makeWindowDraggable(windowEl) {
+        const header = windowEl.querySelector('.window-header');
+        let isDragging = false, dragOffsetX, dragOffsetY;
+        (header || windowEl).addEventListener('mousedown', e => {
+            if (header && e.target !== header) return;
+            if (!header && e.target.closest('button, input, .color-swatch, .anchor-point')) return;
+            isDragging = true;
+            dragOffsetX = e.clientX - windowEl.offsetLeft;
+            dragOffsetY = e.clientY - windowEl.offsetTop;
+            windowEl.style.transition = 'none';
+            e.preventDefault();
+        });
+        window.addEventListener('mousemove', e => {
+            if (isDragging) {
+                let newLeft = e.clientX - dragOffsetX;
+                let newTop = e.clientY - dragOffsetY;
+                const maxLeft = window.innerWidth - windowEl.offsetWidth;
+                const maxTop = window.innerHeight - windowEl.offsetHeight;
+                newLeft = Math.max(0, Math.min(newLeft, maxLeft));
+                newTop = Math.max(0, Math.min(newTop, maxTop));
+                windowEl.style.left = `${newLeft}px`;
+                windowEl.style.top = `${newTop}px`;
+            }
+        });
+        window.addEventListener('mouseup', () => { isDragging = false; windowEl.style.transition = ''; });
+    }
+
+    function setupUIEventListeners() {
+        makeWindowDraggable(document.getElementById('toolbox'));
+        makeWindowDraggable(document.getElementById('canvas-container'));
+        document.getElementById('new-btn').addEventListener('click', () => {
+            if (confirm('現在の作業内容は失われます。新しいキャンバスを作成しますか？')) {
+                gridWidth = 16;
+                gridDepth = 16;
+                document.getElementById('grid-width').value = 16;
+                document.getElementById('grid-depth').value = 16;
+                resetGrid();
+                history = [], historyIndex = -1;
+                saveState();
+            }
+        });
+        document.getElementById('mode-2d').addEventListener('click', () => setMode('2D'));
+        document.getElementById('mode-3d').addEventListener('click', () => setMode('3D'));
+        document.getElementById('toggle-edges').addEventListener('change', () => voxels.forEach(updateVoxelAppearance));
+        document.getElementById('toggle-numbers').addEventListener('change', () => voxels.forEach(updateVoxelAppearance));
+        document.getElementById('add-color-btn').addEventListener('click', () => createColorSwatch(document.getElementById('color-picker').value));
+        document.getElementById('reset-colors-btn').addEventListener('click', setupColorPalette);
+        document.getElementById('undo-btn').addEventListener('click', undo);
+        document.getElementById('redo-btn').addEventListener('click', redo);
+        document.getElementById('reset-canvas-btn').addEventListener('click', () => {
+            if (confirm('現在の描画内容をすべて消去しますか？')) {
+                Array.from(voxels.keys()).forEach(key => removeVoxel(key));
+                saveState();
+            }
+        });
+        document.getElementById('view-toggle').addEventListener('click', e => {
+            e.target.classList.toggle('active');
+            e.target.textContent = e.target.classList.contains('active') ? '固定' : '動かす';
+            updateCameraAndControls();
+        });
+        document.getElementById('anchor-grid').addEventListener('click', e => {
+            if (e.target.classList.contains('anchor-point')) {
+                document.querySelectorAll('.anchor-point').forEach(el => el.classList.remove('selected'));
+                e.target.classList.add('selected');
+            }
+        });
+        document.getElementById('resize-btn').addEventListener('click', () => {
+            const oldVoxelData = Array.from(voxels.values()).map(v => v.userData);
+            const oldWidth = gridWidth, oldDepth = gridDepth;
+            const newWidth = parseInt(document.getElementById('grid-width').value) || 16;
+            const newDepth = parseInt(document.getElementById('grid-depth').value) || 16;
+            const deltaWidth = newWidth - oldWidth, deltaDepth = newDepth - oldDepth;
+            const anchor = document.querySelector('.anchor-point.selected').dataset.anchor;
+            let offsetX = 0, offsetZ = 0;
+            if (anchor.includes('left')) offsetX = 0;
+            else if (anchor.includes('right')) offsetX = deltaWidth;
+            else offsetX = Math.floor(deltaWidth / 2);
+            if (anchor.includes('top')) offsetZ = 0;
+            else if (anchor.includes('bottom')) offsetZ = deltaDepth;
+            else offsetZ = Math.floor(deltaDepth / 2);
+            gridWidth = newWidth;
+            gridDepth = newDepth;
+            resetGrid();
+            oldVoxelData.forEach(data => {
+                const newX = data.x + offsetX, newZ = data.z + offsetZ;
+                if (newX >= 0 && newX < newWidth && newZ >= 0 && newZ < newDepth) {
+                    addOrUpdateVoxel(newX, newZ, data.height, data.color);
+                }
+            });
+            saveState();
+        });
+        document.getElementById('import-json-btn').addEventListener('click', () => document.getElementById('import-json-input').click());
+        document.getElementById('import-json-input').addEventListener('change', handleJsonImport);
+        document.getElementById('export-json').addEventListener('click', exportJSON);
+        document.getElementById('export-png').addEventListener('click', exportPNG);
+        document.getElementById('export-stl').addEventListener('click', exportSTL);
+        document.getElementById('export-3mf').addEventListener('click', () => alert('3MF形式のエクスポートは現在開発中です。'));
+    }
+
+    function onWindowResize() {
+        camera.aspect = canvasContent.clientWidth / canvasContent.clientHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(canvasContent.clientWidth, canvasContent.clientHeight);
+    }
+    
+    function onPointerDown(event) {
+        if (event.target.closest('.floating-window') && !event.target.closest('#canvas-container .window-content')) return;
+        if (event.target.tagName !== 'CANVAS') return;
+        const rect = renderer.domElement.getBoundingClientRect();
+        pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(pointer, camera);
+        const intersects = raycaster.intersectObjects([plane]);
+        if (intersects.length > 0) {
+            const coord = getCoordFromPosition(intersects[0].point);
+            if (!coord || coord.x < 0 || coord.x >= gridWidth || coord.z < 0 || coord.z >= gridDepth) return;
+            const key = `${coord.x},${coord.z}`;
+            const existingVoxel = voxels.get(key);
+            if (event.button === 0) {
+                if (currentColor === null) {
+                    if (existingVoxel) removeVoxel(key);
+                } else {
+                    const currentHeight = existingVoxel ? existingVoxel.userData.height : 0;
+                    let newHeight = (currentMode === '2D') ? 1 : (currentHeight + 1) % (MAX_HEIGHT + 1);
+                    if (newHeight === 0) {
+                        if (existingVoxel) removeVoxel(key);
+                    } else {
+                        addOrUpdateVoxel(coord.x, coord.z, newHeight, currentColor);
+                    }
+                }
+            } else if (event.button === 2) {
+                if (!existingVoxel) return;
+                if (currentMode === '2D') {
+                    removeVoxel(key);
+                } else {
+                    const { x, z, height, color } = existingVoxel.userData;
+                    const newHeight = height - 1;
+                    if (newHeight > 0) {
+                        addOrUpdateVoxel(x, z, newHeight, color);
+                    } else {
+                        removeVoxel(key);
+                    }
+                }
+            }
+            saveState();
+        }
+    }
+    
+    function addOrUpdateVoxel(x, z, height, color) {
+        const key = `${x},${z}`;
+        if (voxels.has(key)) removeVoxel(key);
+        const voxelGroup = new THREE.Group();
+        const boxMaterial = (currentMode === '3D') ? new THREE.MeshStandardMaterial({ color: color }) : new THREE.MeshBasicMaterial({ color: color });
+        const boxGeometry = new THREE.BoxGeometry(VOXEL_SIZE, height * VOXEL_HEIGHT_STEP, VOXEL_SIZE);
+        const boxMesh = new THREE.Mesh(boxGeometry, boxMaterial);
+        voxelGroup.add(boxMesh);
+        const edges = new THREE.EdgesGeometry(boxGeometry);
+        const edgeLines = new THREE.LineSegments(edges, edgeLineMaterial);
+        edgeLines.name = 'edgeLines';
+        voxelGroup.add(edgeLines);
+        const boxHeight = height * VOXEL_HEIGHT_STEP;
+        if (height > 1) {
+            for (let h = 1; h < height; h++) {
+                const lineGeometry = new THREE.BoxGeometry(VOXEL_SIZE, 0.1, VOXEL_SIZE);
+                const lineMesh = new THREE.Mesh(lineGeometry, horizontalLineMaterial);
+                lineMesh.position.y = (h * VOXEL_HEIGHT_STEP) - (boxHeight / 2);
+                lineMesh.name = 'horizontalLine';
+                voxelGroup.add(lineMesh);
+            }
+        }
+        const numberMaterial = numberMaterials[height - 1];
+        const numberPlane = new THREE.Mesh(new THREE.PlaneGeometry(VOXEL_SIZE * 0.7, VOXEL_SIZE * 0.7), numberMaterial);
+        numberPlane.name = 'heightLabel';
+        numberPlane.rotation.x = -Math.PI / 2;
+        numberPlane.position.y = boxHeight / 2 + 0.1;
+        voxelGroup.add(numberPlane);
+        voxelGroup.userData = { x, z, height, color };
+        voxels.set(key, voxelGroup);
+        scene.add(voxelGroup);
+        updateVoxelAppearance(voxelGroup);
+    }
+    
+    function updateVoxelAppearance(voxelGroup) {
+        const { x, z, height } = voxelGroup.userData;
+        const offsetX = (gridWidth * VOXEL_SIZE) / 2 - VOXEL_SIZE / 2;
+        const offsetZ = (gridDepth * VOXEL_SIZE) / 2 - VOXEL_SIZE / 2;
+        const epsilon = 0.02;
+        voxelGroup.position.x = x * VOXEL_SIZE - offsetX;
+        voxelGroup.position.z = z * VOXEL_SIZE - offsetZ;
+        const is3D = currentMode === '3D';
+        const showEdges = document.getElementById('toggle-edges').checked;
+        const showNumbers = document.getElementById('toggle-numbers').checked;
+        voxelGroup.children.forEach(child => {
+            if (child.name === 'edgeLines' || child.name === 'horizontalLine') {
+                child.visible = is3D && showEdges;
+            } else if (child.name === 'heightLabel') {
+                child.visible = is3D && showNumbers;
+            }
+        });
+        if (!is3D) {
+            voxelGroup.position.y = epsilon;
+            voxelGroup.children[0].scale.y = 0.001;
+        } else {
+            voxelGroup.children[0].scale.y = 1;
+            voxelGroup.position.y = (height * VOXEL_HEIGHT_STEP) / 2 + epsilon;
+        }
+    }
+    
+    function removeVoxel(key) {
+        const voxelGroup = voxels.get(key);
+        if (voxelGroup) {
+            voxelGroup.children.forEach(child => {
+                child.geometry.dispose();
+                if (child.material && ![horizontalLineMaterial, edgeLineMaterial, ...numberMaterials].includes(child.material)) {
+                    child.material.dispose();
+                }
+            });
+            scene.remove(voxelGroup);
+            voxels.delete(key);
+        }
+    }
+
+    function getCoordFromPosition(pos) {
+        const offsetX = (gridWidth * VOXEL_SIZE) / 2;
+        const offsetZ = (gridDepth * VOXEL_SIZE) / 2;
+        const x = Math.floor((pos.x + offsetX) / VOXEL_SIZE);
+        const z = Math.floor((pos.z + offsetZ) / VOXEL_SIZE);
+        return { x, z };
+    }
+
+    function setupColorPalette() {
+        colorPalette.innerHTML = '';
+        initialColors.forEach(color => createColorSwatch(color));
+        selectColor(colorPalette.children[1]);
+    }
+
+    function createColorSwatch(color) {
+        const swatch = document.createElement('div');
+        swatch.classList.add('color-swatch');
+        swatch.dataset.color = color;
+        if (color === null) swatch.classList.add('transparent');
+        else swatch.style.backgroundColor = color;
+        swatch.addEventListener('click', () => selectColor(swatch));
+        colorPalette.appendChild(swatch);
+    }
+    
+    function selectColor(selectedSwatch) {
+        document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
+        selectedSwatch.classList.add('selected');
+        currentColor = selectedSwatch.dataset.color === 'null' ? null : selectedSwatch.dataset.color;
+    }
+
+    function saveState() {
+        const state = [];
+        voxels.forEach(voxel => { state.push(voxel.userData); });
+        if (historyIndex > -1 && JSON.stringify(state) === JSON.stringify(history[historyIndex])) return;
+        history = history.slice(0, historyIndex + 1);
+        history.push(state);
+        historyIndex = history.length - 1;
+    }
+
+    function loadState(state) {
+        Array.from(voxels.keys()).forEach(key => removeVoxel(key));
+        state.forEach(data => addOrUpdateVoxel(data.x, data.z, data.height, data.color));
+    }
+
+    function undo() {
+        if (historyIndex > 0) { historyIndex--; loadState(history[historyIndex]); }
+    }
+
+    function redo() {
+        if (historyIndex < history.length - 1) { historyIndex++; loadState(history[historyIndex]); }
+    }
+    
+    function downloadFile(filename, content, type) {
+        const a = document.createElement('a');
+        const blob = new Blob([content], {type: type});
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(a.href);
+    }
+    
+    // =================================================================
+    // ▼▼▼ 修正箇所: ファイル名入力ダイアログを追加 ▼▼▼
+    // =================================================================
+    function exportJSON() {
+        const userInput = prompt('ファイル名を入力してください (.json)', 'voxel-art');
+        if (!userInput) return;
+        const filename = userInput.endsWith('.json') ? userInput : `${userInput}.json`;
+
+        const data = { gridSize: { width: gridWidth, depth: gridDepth }, voxels: Array.from(voxels.values()).map(v => v.userData) };
+        downloadFile(filename, JSON.stringify(data, null, 2), 'application/json');
+    }
+
+    function handleJsonImport(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = e => {
+            try {
+                const data = JSON.parse(e.target.result);
+                if (data && data.gridSize && Array.isArray(data.voxels)) {
+                    loadFromJSONData(data);
+                } else {
+                    alert('無効なJSONファイルです。');
+                }
+            } catch (error) {
+                alert(`ファイルの読み込み中にエラーが発生しました:\n${error.message}`);
+            }
+        };
+        reader.readAsText(file);
+        event.target.value = '';
+    }
+
+    function loadFromJSONData(data) {
+        gridWidth = data.gridSize.width;
+        gridDepth = data.gridSize.depth;
+        document.getElementById('grid-width').value = gridWidth;
+        document.getElementById('grid-depth').value = gridDepth;
+        resetGrid();
+        data.voxels.forEach(d => addOrUpdateVoxel(d.x, d.z, d.height, d.color));
+        saveState();
+    }
+    
+    function exportPNG() {
+        const userInput = prompt('ファイル名を入力してください (.png)', 'voxel-art');
+        if (!userInput) return;
+        const filename = userInput.endsWith('.png') ? userInput : `${userInput}.png`;
+
+        renderer.render(scene, camera);
+        const dataURL = renderer.domElement.toDataURL('image/png');
+        const a = document.createElement('a');
+        a.href = dataURL;
+        a.download = filename;
+        a.click();
+    }
+    
+    function exportSTL() {
+        const userInput = prompt('ファイル名を入力してください (.stl)', 'voxel-art');
+        if (!userInput) return;
+        const filename = userInput.endsWith('.stl') ? userInput : `${userInput}.stl`;
+
+        let stl = 'solid VoxelArt\n';
+        const vs = VOXEL_SIZE;
+        const hs = VOXEL_HEIGHT_STEP;
+        const offsetX = (gridWidth * vs) / 2 - vs / 2;
+        const offsetZ = (gridDepth * vs) / 2 - vs / 2;
+        voxels.forEach(voxelGroup => {
+            const { x, z, height } = voxelGroup.userData;
+            if (height === 0) return;
+            const px = x * vs - offsetX, pz = z * vs - offsetZ, H = height * hs;
+            const p = [
+                new THREE.Vector3(px - vs/2, 0, pz - vs/2), new THREE.Vector3(px + vs/2, 0, pz - vs/2),
+                new THREE.Vector3(px + vs/2, 0, pz + vs/2), new THREE.Vector3(px - vs/2, 0, pz + vs/2),
+                new THREE.Vector3(px - vs/2, H, pz - vs/2), new THREE.Vector3(px + vs/2, H, pz - vs/2),
+                new THREE.Vector3(px + vs/2, H, pz + vs/2), new THREE.Vector3(px - vs/2, H, pz + vs/2)
+            ];
+            const addFace = (v1, v2, v3, v4) => {
+                const n = new THREE.Vector3().crossVectors(p[v2].clone().sub(p[v1]), p[v3].clone().sub(p[v1])).normalize();
+                const writeFacet = (a, b, c) => {
+                    stl += `facet normal ${n.x} ${n.y} ${n.z}\nouter loop\n`;
+                    stl += `vertex ${p[a].x} ${p[a].y} ${p[a].z}\nvertex ${p[b].x} ${p[b].y} ${p[b].z}\nvertex ${p[c].x} ${p[c].y} ${p[c].z}\n`;
+                    stl += 'endloop\nendfacet\n';
+                };
+                writeFacet(v1, v2, v3); writeFacet(v1, v3, v4);
+            };
+            addFace(3, 2, 6, 7); addFace(0, 4, 5, 1); addFace(1, 5, 6, 2);
+            addFace(0, 3, 7, 4); addFace(4, 5, 6, 7); addFace(0, 1, 2, 3);
+        });
+        stl += 'endsolid VoxelArt\n';
+        downloadFile(filename, stl, 'model/stl');
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+    }
+    
+    init();
+
+</script>
+
+</body>
+</html>
